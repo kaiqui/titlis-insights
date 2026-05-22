@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: titlis-insights-config
+  namespace: __NAMESPACE__
+data:
+  PORT: "8091"
+  TITLIS_APP_ENV: "preprod"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  TITLIS_API_BASE_URL: "http://titlis-api:8080"
+  DATADOG_SITE: "datadoghq.com"
+  DATADOG_DEFAULT_WINDOW_DAYS: "30"
+  DATADOG_MIN_CONFIDENCE: "0.7"
+  INSIGHTS_RECOMMENDATION_CACHE_TTL_MINUTES: "360"
+  INSIGHTS_USE_STUB_SOURCE: "__INSIGHTS_USE_STUB_SOURCE__"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: titlis-insights-secrets
+  namespace: __NAMESPACE__
+type: Opaque
+stringData:
+  INSIGHTS_INTERNAL_SECRET: "__INSIGHTS_INTERNAL_SECRET__"
+  TITLIS_API_INTERNAL_SECRET: "__TITLIS_AI_INTERNAL_SECRET__"
+  DATABASE_URL: "__INSIGHTS_DATABASE_URL__"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: titlis-insights
+  namespace: __NAMESPACE__
+  labels:
+    app: titlis-insights
+    tags.datadoghq.com/env: "preprod"
+    tags.datadoghq.com/service: "titlis-insights"
+    tags.datadoghq.com/version: "__IMAGE_TAG__"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: titlis-insights
+  template:
+    metadata:
+      labels:
+        app: titlis-insights
+        tags.datadoghq.com/env: "preprod"
+        tags.datadoghq.com/service: "titlis-insights"
+        tags.datadoghq.com/version: "__IMAGE_TAG__"
+    spec:
+      containers:
+        - name: titlis-insights
+          image: __DOCKERHUB_USER__/titlis-insights:__IMAGE_TAG__
+          imagePullPolicy: __IMAGE_PULL_POLICY__
+          ports:
+            - containerPort: 8091
+              name: http
+          envFrom:
+            - configMapRef:
+                name: titlis-insights-config
+            - secretRef:
+                name: titlis-insights-secrets
+          env:
+            - name: DD_AGENT_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: titlis-insights
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: titlis-insights
+  ports:
+    - port: 8091
+      targetPort: http
+      protocol: TCP
+      name: http
